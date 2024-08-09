@@ -87,7 +87,8 @@ class WaterControl:
     PORT = int(os.getenv('MQTT_PORT', 1883))
     USERNAME = os.getenv('MQTT_USERNAME')
     PASSWORD = os.getenv('MQTT_PASSWORD')
-
+    NAME = os.getenv('NAME', 'Water Control')
+    IDENTIFIER = os.getenv('IDENTIFIER', 'water_control') # Must be unique for each device
     main_water_switch = None
     automatic_watering_switch = None
     current_water_sensor = None
@@ -110,7 +111,7 @@ class WaterControl:
             logger.error("MQTT settings not initialized")
             raise Exception("MQTT settings not initialized")
 
-        device_info = DeviceInfo(identifiers=["water_front_1"], name="Water Control Front", manufacturer="Linghammar", model="Water Control")
+        device_info = DeviceInfo(name=self.NAME, identifiers=[self.IDENTIFIER], manufacturer="Linghammar", model="Water Control")
         main_water_switch_info = SwitchInfo(device=device_info, name="Main Water", unique_id="main_water_switch")
         watering_switch_info = SwitchInfo(device=device_info, name="Automatic watering", unique_id="watering_switch")
         total_water_sensor_info = SensorInfo(device=device_info, name="Total water used", unique_id="total_water_sensor", device_class="water", unit_of_measurement="l")
@@ -202,38 +203,34 @@ class WaterControl:
 
     # Main loop to simulate sensor data and handle switch logic
     def main_loop(self):
-        total_water_usage = self.database.load_accumulated_value()
-        self.total_water_sensor.set_state(f"{total_water_usage:.1f}")
-        self.current_water_sensor.set_state(f"{self.current_water_usage:.1f}")
-        while True:
-            try:
-                if self.main_time > 0:
-                    self.main_time -= 1
-                    if self.main_time <= 0:
-                        logger.info("Main water time expired")
-                        self.disableMainWater() 
-                        if self.automatic_time <= 0:
-                            self.disableAutomaticWatering()
-                if self.automatic_time > 0:
-                    self.automatic_time -= 1
+        try:
+            if self.main_time > 0:
+                self.main_time -= 1
+                if self.main_time <= 0:
+                    logger.info("Main water time expired")
+                    self.disableMainWater() 
                     if self.automatic_time <= 0:
-                        logger.info("Automatic watering time expired")
                         self.disableAutomaticWatering()
-                        if self.main_time <= 0:
-                            self.disableMainWater()
-                if self.current_water_counter > 0:
-                    usage = self.current_water_counter * 1.0
-                    self.current_water_counter = 0
-                    total_water_usage += usage
-                    self.database.save_accumulated_value(total_water_usage)
-                    self.current_water_usage += usage
-                    self.total_water_sensor.set_state(f"{total_water_usage:.1f}")
-                    self.current_water_sensor.set_state(f"{self.current_water_usage:.1f}")
+            if self.automatic_time > 0:
+                self.automatic_time -= 1
+                if self.automatic_time <= 0:
+                    logger.info("Automatic watering time expired")
+                    self.disableAutomaticWatering()
+                    if self.main_time <= 0:
+                        self.disableMainWater()
+            if self.current_water_counter > 0:
+                usage = self.current_water_counter * 1.0
+                self.current_water_counter = 0
+                total_water_usage += usage
+                self.database.save_accumulated_value(total_water_usage)
+                self.current_water_usage += usage
+                self.total_water_sensor.set_state(f"{total_water_usage:.1f}")
+                self.current_water_sensor.set_state(f"{self.current_water_usage:.1f}")
 
-                time.sleep(1)  # Pause before the next update
-            except Exception as e:
-                logger.error(f"Error in main loop: {e}")
-                time.sleep(5)  # Delay to avoid rapid looping in case of persistent errors
+            time.sleep(1)  # Pause before the next update
+        except Exception as e:
+            logger.error(f"Error in main loop: {e}")
+            time.sleep(5)  # Delay to avoid rapid looping in case of persistent errors
 
     # Gracefully disconnect the MQTT client
     def disconnect_mqtt_client(client):
@@ -251,7 +248,11 @@ if __name__ == "__main__":
         watercontrol.setupGpios()
         watercontrol.setup_mqtt_client()
         watercontrol.setup_device()
-        watercontrol.main_loop()
+        total_water_usage = watercontrol.database.load_accumulated_value()
+        watercontrol.total_water_sensor.set_state(f"{total_water_usage:.1f}")
+        watercontrol.current_water_sensor.set_state(f"{watercontrol.current_water_usage:.1f}")
+        while True:
+            watercontrol.main_loop()
     except KeyboardInterrupt:
         logger.info("Script interrupted by user")
     finally:
